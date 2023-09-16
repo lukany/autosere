@@ -1,0 +1,80 @@
+name: Release
+
+on: workflow_dispatch
+
+permissions:
+  contents: write
+
+env:
+  CONVCO_VERSION: v0.4.2
+
+jobs:
+  bump:
+    runs-on: ubuntu-22.04
+    outputs:
+      newVersion: ${{ steps.bump.outputs.newVersion }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Install convco
+        run: |
+          curl -sSfL "https://github.com/convco/convco/releases/download/${{ env.CONVCO_VERSION }}/convco-ubuntu.zip" | zcat > /usr/local/bin/convco
+          chmod +x /usr/local/bin/convco
+      - name: Bump Version
+        id: bump
+        run: |
+          CURRENT_VERSION=$(convco version)
+          BUMPED_VERSION=$(convco version --bump)
+          echo "Current Version: $CURRENT_VERSION"
+          echo "Bumped Version: $BUMPED_VERSION"
+          if [ "$CURRENT_VERSION" == "$BUMPED_VERSION" ]; then
+            echo "No new version."
+          else
+            echo "New version detected."
+            echo "newVersion=$BUMPED_VERSION" >> "$GITHUB_OUTPUT"
+          fi
+  release:
+    needs: bump
+    if: needs.bump.outputs.newVersion
+    runs-on: ubuntu-22.04
+    env:
+      VERSION: ${{ needs.bump.outputs.newVersion }}
+      CHANGELOG_FILE: CHANGELOG.md
+      FULL_CHANGELOG_FILE: FULL_CHANGELOG.md
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Install convco
+        run: |
+          curl -sSfL "https://github.com/convco/convco/releases/download/${{ env.CONVCO_VERSION }}/convco-ubuntu.zip" | zcat > /usr/local/bin/convco
+          chmod +x /usr/local/bin/convco
+      - name: Generate changelogs
+        run: |
+          base_changelog_command="
+            convco
+            changelog
+            --unreleased=${{ env.VERSION }}
+          "
+          $base_changelog_command --max-versions=1 > ${{ env.CHANGELOG_FILE }}
+          $base_changelog_command > ${{ env.FULL_CHANGELOG_FILE }}
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release_tag="v${{ env.VERSION }}"
+          gh release create \
+            $release_tag \
+            --title $release_tag \
+            --notes-file ${{ env.CHANGELOG_FILE }} \
+            ${{ env.FULL_CHANGELOG_FILE }}
+
+  publish:
+    needs: [bump, release]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Publish / Deploy
+        run: |
+          # ...
+          # Project-specific commands for publishing / deploying go here
